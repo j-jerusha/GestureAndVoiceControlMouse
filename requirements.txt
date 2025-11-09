@@ -1,0 +1,11 @@
+opencv-python
+mediapipe
+pyautogui  # To control the mouse cursor
+pynput # For advanced mouse
+numpy 
+pycaw            # to control system volume
+screen-brightness-control  # to control brightness
+comtypes
+speechrecognition
+pyttsx3
+pyaudio

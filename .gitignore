@@ -1,0 +1,33 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+gesture_env/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Screenshots
+screenshot_*.png
+
+# Python package folders
+*.egg-info/
+dist/
+build/
+
+# Ignore model weights (if any)
+*.h5
+*.tflite
+*.pt
