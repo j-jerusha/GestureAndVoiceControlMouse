@@ -1,11 +1,13 @@
 opencv-python
 mediapipe
-pyautogui  # To control the mouse cursor
-pynput # For advanced mouse
-numpy 
-pycaw            # to control system volume
-screen-brightness-control  # to control brightness
+pyautogui
+pynput
+numpy
+pycaw
+screen-brightness-control
 comtypes
-speechrecognition
+SpeechRecognition
 pyttsx3
 pyaudio
+fastapi
+uvicorn
