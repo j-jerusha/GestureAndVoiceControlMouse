@@ -1,7 +1,7 @@
 import os
 import absl.logging
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'   # Hide TensorFlow INFO/WARNING
-absl.logging.set_verbosity(absl.logging.ERROR)  # Only show ERRORs
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+absl.logging.set_verbosity(absl.logging.ERROR)
 
 # ------------------ Imports ------------------
 import cv2
@@ -12,11 +12,11 @@ import speech_recognition as sr
 import time
 import math
 from util import move_cursor
-import ctypes
-from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-from comtypes import CLSCTX_ALL
+from ctypes import POINTER, cast
+from comtypes import CLSCTX_ALL, CoCreateInstance
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, IMMDeviceEnumerator, EDataFlow, ERole
+from pycaw.constants import CLSID_MMDeviceEnumerator
 import screen_brightness_control as sbc
-
 
 # ------------------ Gesture Control Variables ------------------
 mp_hands = mp.solutions.hands
@@ -28,13 +28,24 @@ click_cooldown = 0.3
 # ------------------ Global Gesture Toggle ------------------
 gesture_enabled = True
 
-
-# ------------------ Volume Control Setup ------------------
-devices = AudioUtilities.GetSpeakers()
-interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-volume = ctypes.cast(interface, ctypes.POINTER(IAudioEndpointVolume))
+# ------------------ Volume Control Setup (FIXED) ------------------
+try:
+    devices = AudioUtilities.GetSpeakers()
+    interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+    volume = cast(interface, POINTER(IAudioEndpointVolume))
+except AttributeError:
+    # Fallback method for newer pycaw versions
+    deviceEnumerator = CoCreateInstance(
+        CLSID_MMDeviceEnumerator,
+        IMMDeviceEnumerator,
+        CLSCTX_ALL
+    )
+    speakers = deviceEnumerator.GetDefaultAudioEndpoint(EDataFlow.eRender.value, ERole.eMultimedia.value)
+    interface = speakers.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+    volume = cast(interface, POINTER(IAudioEndpointVolume))
 
 pyautogui.FAILSAFE = False
+
 
 # ------------------ Voice Assistant ------------------
 def listen_for_voice():
@@ -44,14 +55,14 @@ def listen_for_voice():
     recognizer.energy_threshold = 300
     recognizer.pause_threshold = 0.8
 
-    
-    while True:
-        recognized = False 
+    youtube_mode = False  # global YouTube flag
 
+    while True:
+        recognized = False
 
         try:
             with mic as source:
-                print("🎤 Listening for voice commands...")
+                print("🎤 Listening...")
                 recognizer.adjust_for_ambient_noise(source, duration=0.5)
                 audio = recognizer.listen(source, phrase_time_limit=5)
 
@@ -59,155 +70,140 @@ def listen_for_voice():
                 command = recognizer.recognize_google(audio).lower()
                 print(f"You said: {command}")
 
-                # Mouse control
+                # ------------- MOUSE CONTROL -------------
                 if "left click" in command:
                     pyautogui.leftClick()
+                    print("Left click")
                     recognized = True
-                    print("✅ Left click performed")
 
                 elif "double click" in command:
                     pyautogui.doubleClick()
+                    print("Double click")
                     recognized = True
-                    print("✅ Double click performed")
 
                 elif "right click" in command:
                     pyautogui.rightClick()
+                    print("Right click")
                     recognized = True
-                    print("✅ Right click performed")
 
-                elif "scroll" in command:
-                    if "up" in command:
-                        pyautogui.scroll(500)
-                        recognized = True
-                        print("✅ Scrolled up")
-                    elif "down" in command:
-                        pyautogui.scroll(-500)
-                        recognized = True
-                        print("✅ Scrolled down")
-                    else:
-                        print("⚠️ Please say 'scroll up' or 'scroll down'")
+                elif "scroll up" in command:
+                    pyautogui.scroll(500)
+                    recognized = True
 
-                # Volume control
+                elif "scroll down" in command:
+                    pyautogui.scroll(-500)
+                    recognized = True
+
+                # ------------- VOLUME -------------
                 elif "volume up" in command:
-                    current_vol = volume.GetMasterVolumeLevelScalar()
-                    volume.SetMasterVolumeLevelScalar(min(current_vol+0.05,1.0),None)
+                    v = volume.GetMasterVolumeLevelScalar()
+                    volume.SetMasterVolumeLevelScalar(min(v + 0.05, 1.0), None)
+                    print("Volume up")
                     recognized = True
-                    print("🔊 Volume Up")
+
                 elif "volume down" in command:
-                    current_vol = volume.GetMasterVolumeLevelScalar()
-                    volume.SetMasterVolumeLevelScalar(max(current_vol-0.05,0.0),None)
+                    v = volume.GetMasterVolumeLevelScalar()
+                    volume.SetMasterVolumeLevelScalar(max(v - 0.05, 0.0), None)
+                    print("Volume down")
                     recognized = True
-                    print("🔊 Volume Down")
 
-
-                # Brightness control
+                # ------------- BRIGHTNESS -------------
                 elif "brightness up" in command:
                     sbc.set_brightness("+5")
+                    print("Brightness up")
                     recognized = True
-                    print("💡 Brightness Up")
+
                 elif "brightness down" in command:
                     sbc.set_brightness("-5")
+                    print("Brightness down")
                     recognized = True
-                    print("💡 Brightness Down")
 
-                # Browser control and youtube control
+                # ------------- BROWSER -------------
                 elif "open browser" in command:
                     import webbrowser
                     webbrowser.open("https://www.google.com")
+                    print("Browser opened")
                     recognized = True
-                    print("🌐 Browser opened")
+
                 elif "close browser" in command:
-                    # Closes currently active window (browser if active)
                     pyautogui.hotkey("alt", "f4")
+                    print("Browser closed")
                     recognized = True
-                    print("❌ Browser closed")
 
-                # Typing text
-                elif command.startswith("type "):
-                    text_to_type = command.replace("type ","")
-                    pyautogui.write(text_to_type)
-                    recognized = True
-                    print(f"📝 Typed text: {text_to_type}")
-
-                # Search command
-                elif command.startswith("search "):
-                    search_text = command.replace("search ","")
-                    import webbrowser
-                    webbrowser.open(f"https://www.google.com/search?q={search_text}")
-                    recognized = True
-                    print(f"🔎 Searched: {search_text}")
-
-
-                # Flag to track YouTube mode
-                youtube_mode = False
-
-                # Activate YouTube Mode
-                if "open youtube" in command:
+                # ------------- YOUTUBE MODE -------------
+                elif "open youtube" in command:
                     import webbrowser
                     webbrowser.open("https://www.youtube.com")
                     youtube_mode = True
+                    print("YouTube opened")
                     recognized = True
-                    print("▶️🌐 Opened YouTube")
 
                 elif "close youtube" in command:
-                    pyautogui.hotkey("alt", "f4")
                     youtube_mode = False
+                    pyautogui.hotkey("alt", "f4")
+                    print("YouTube closed")
                     recognized = True
-                    print("❌📺 Closed YouTube")
 
-                # Typing text on YouTube
+                elif youtube_mode and command.startswith("search "):
+                    text = command.replace("search ", "")
+                    pyautogui.write(text)
+                    pyautogui.press("enter")
+                    print(f"Searched YouTube for: {text}")
+                    recognized = True
+
+                elif youtube_mode and command.startswith("type "):
+                    text = command.replace("type ", "")
+                    pyautogui.write(text)
+                    pyautogui.press("enter")
+                    print(f"YouTube typed: {text}")
+                    recognized = True
+
+                elif youtube_mode and "play" in command:
+                    pyautogui.press("space")
+                    print("YouTube play")
+                    recognized = True
+
+                elif youtube_mode and "pause" in command:
+                    pyautogui.press("space")
+                    print("YouTube pause")
+                    recognized = True
+
+                # ------------- GLOBAL TYPE / SEARCH -------------
                 elif command.startswith("type "):
-                    text_to_type = command.replace("type ","")
-                    pyautogui.write(text_to_type)
-                    pyautogui.press("enter")  # Press Enter to search
+                    text = command.replace("type ", "")
+                    pyautogui.write(text)
+                    print("Typed:", text)
                     recognized = True
-                    print(f"📝🔎 Typed and searched on YouTube: {text_to_type}")
 
-                # Search command on YouTube
                 elif command.startswith("search "):
-                    search_text = command.replace("search ","")
-                    pyautogui.write(search_text)
-                    pyautogui.press("enter")  # Press Enter to search
+                    text = command.replace("search ", "")
+                    import webbrowser
+                    webbrowser.open(f"https://www.google.com/search?q={text}")
+                    print("Searched Google:", text)
                     recognized = True
-                    print(f"🔎 Searched YouTube for: {search_text}")
-                    
-                elif "play" in command:
-                    pyautogui.press("space")
-                    recognized = True
-                    print("▶️ Playing YouTube")
 
-                elif "pause" in command:
-                    pyautogui.press("space")
-                    recognized = True
-                    print("⏸️ Paused YouTube")
-
-
-                # Screenshot
+                # ------------- SCREENSHOT -------------
                 elif "screenshot" in command:
-                    screenshot = pyautogui.screenshot()
-                    file_name = f"screenshot_{int(time.time())}.png"
-                    screenshot.save(file_name)
+                    name = f"screenshot_{int(time.time())}.png"
+                    pyautogui.screenshot().save(name)
+                    print("Screenshot saved:", name)
                     recognized = True
-                    print(f"📸 Screenshot saved as {file_name}")
 
-                    
-
-                # Enable or Disable Gesture Control
+                # ------------- GESTURE TOGGLE -------------
                 elif "disable gestures" in command:
                     global gesture_enabled
                     gesture_enabled = False
+                    print("Gestures disabled")
                     recognized = True
-                    print("🙌 Gesture control disabled")
 
                 elif "enable gestures" in command:
                     gesture_enabled = True
+                    print("Gestures enabled")
                     recognized = True
-                    print("🤖 Gesture control enabled")
 
-
-                # Exit program
-                elif "stop" in command or "exit" in command or "quit" in command:
-                    print("🛑 Exiting program")
+                # ------------- EXIT -------------
+                elif "stop" in command or "exit" in command:
+                    print("Exiting program...")
                     os._exit(0)
 
                 if not recognized:
@@ -216,19 +212,18 @@ def listen_for_voice():
             except sr.UnknownValueError:
                 print("❌ Could not understand audio")
             except sr.RequestError as e:
-                print("❌ Could not request results;", e)
+                print("❌ Speech API error:", e)
 
         except Exception as e:
-            print(f"❌ Microphone error: {e}")
+            print("❌ Microphone error:", e)
             time.sleep(1)
 
 
-# Start voice assistant in parallel thread
+# Start voice assistant thread
 threading.Thread(target=listen_for_voice, daemon=True).start()
 
 
-
-# ------------------ Hand Gesture Control ------------------
+# ------------------ HAND GESTURE CONTROL ------------------
 cap = cv2.VideoCapture(0)
 with mp_hands.Hands(
     max_num_hands=1,
@@ -243,7 +238,6 @@ with mp_hands.Hands(
         if not ret:
             break
 
-        # Flip frame for natural mirror movement
         frame = cv2.flip(frame, 1)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = hands.process(rgb)
@@ -251,98 +245,51 @@ with mp_hands.Hands(
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
 
-                if gesture_enabled: 
-                    # Move cursor
+                if gesture_enabled:
                     move_cursor(hand_landmarks, frame)
-                    mp_drawing.draw_landmarks(
-                        frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+                    mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
-                # Get fingertips
+                # Fingertip indices
                 thumb_tip = hand_landmarks.landmark[4]
                 index_tip = hand_landmarks.landmark[8]
                 middle_tip = hand_landmarks.landmark[12]
                 ring_tip = hand_landmarks.landmark[16]
-                pinky_tip = hand_landmarks.landmark[20]
-                thumb_ip = hand_landmarks.landmark[3]
-                thumb_mcp = hand_landmarks.landmark[2]
-                index_mcp = hand_landmarks.landmark[5]
-                pinky_mcp = hand_landmarks.landmark[17]
-
-
-                # Thumb Up/Down logic
-                thumb_up = thumb_tip.y < thumb_ip.y and thumb_ip.y < thumb_mcp.y
-                thumb_down = thumb_tip.y > thumb_ip.y and thumb_ip.y > thumb_mcp.y
-
-                # Finger states (1=up, 0=down)
-                fingers = [1 if hand_landmarks.landmark[tip].y < hand_landmarks.landmark[tip-2].y else 0 for tip in [8,12,16,20]]
-
-                # Distances for gestures
-                dist_thumb_index = math.hypot(thumb_tip.x - index_tip.x, thumb_tip.y - index_tip.y)
-                dist_thumb_middle = math.hypot(thumb_tip.x - middle_tip.x, thumb_tip.y - middle_tip.y)
-                dist_thumb_ring = math.hypot(thumb_tip.x - ring_tip.x, thumb_tip.y - ring_tip.y)
 
                 now = time.time()
 
-                # ---- Left Click / Double Click ----
-                if dist_thumb_index < 0.06 and now - last_click_time > click_cooldown:
+                # ----------------- Finger Distance -----------------
+                dist_index = math.hypot(thumb_tip.x - index_tip.x, thumb_tip.y - index_tip.y)
+                dist_middle = math.hypot(thumb_tip.x - middle_tip.x, thumb_tip.y - middle_tip.y)
+                dist_ring = math.hypot(thumb_tip.x - ring_tip.x, thumb_tip.y - ring_tip.y)
+
+                # ----------------- Single / Double Click -----------------
+                if dist_index < 0.06 and now - last_click_time > click_cooldown:
                     click_times.append(now)
                     last_click_time = now
 
                     if len(click_times) >= 2 and click_times[-1] - click_times[-2] < 0.4:
                         pyautogui.doubleClick()
-                        cv2.putText(frame, "Double Click", (10,50), cv2.FONT_HERSHEY_SIMPLEX,1,(0,255,255),2)
+                        cv2.putText(frame, "Double Click", (10, 50),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
                         click_times = []
                     else:
                         pyautogui.click()
-                        cv2.putText(frame, "Single Click", (10,50), cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2)
+                        cv2.putText(frame, "Single Click", (10, 50),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
 
-                    if len(click_times) > 2:
-                        click_times.pop(0)
-
-                # ---- Right Click ----
-                if dist_thumb_middle < 0.06:
+                # ----------------- Right Click -----------------
+                if dist_middle < 0.06:
                     pyautogui.rightClick()
-                    cv2.putText(frame, "Right Click", (10,90), cv2.FONT_HERSHEY_SIMPLEX,1,(255,0,255),2)
+                    cv2.putText(frame, "Right Click", (10, 90),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
 
-                # ---- Close Tab ----
-                if dist_thumb_ring < 0.06:
-                    pyautogui.hotkey("ctrl","w")
-                    cv2.putText(frame,"Close Tab",(10,130),cv2.FONT_HERSHEY_SIMPLEX,1,(0,128,255),2)
+                # ----------------- Close Tab -----------------
+                if dist_ring < 0.06:
+                    pyautogui.hotkey("ctrl", "w")
+                    cv2.putText(frame, "Close Tab", (10, 130),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 128, 255), 2)
 
-                # ---- Scroll Mode (index+middle fingers up) ----
-                if fingers[0]==1 and fingers[1]==1 and fingers[2]==0 and fingers[3]==0:
-                    if index_tip.y<0.4:
-                        pyautogui.scroll(80)
-                        cv2.putText(frame,"Scroll Up",(10,170),cv2.FONT_HERSHEY_SIMPLEX,1,(0,255,0),2)
-                    elif index_tip.y>0.6:
-                        pyautogui.scroll(-80)
-                        cv2.putText(frame,"Scroll Down",(10,170),cv2.FONT_HERSHEY_SIMPLEX,1,(0,0,255),2)
-
-                # ---- Volume Control (Index + Middle + Ring + Pinky up) ----
-                if fingers[0]==1 and fingers[1]==1 and fingers[2]==1 and fingers[3]==1:
-                    current_vol = volume.GetMasterVolumeLevelScalar()
-                    if index_tip.y < 0.3:
-                        volume.SetMasterVolumeLevelScalar(min(current_vol+0.05,1.0), None)
-                        cv2.putText(frame,"Volume Up",(10,210),cv2.FONT_HERSHEY_SIMPLEX,1,(0,255,0),2)
-                    elif index_tip.y > 0.7:
-                        volume.SetMasterVolumeLevelScalar(max(current_vol-0.05,0.0), None)
-                        cv2.putText(frame,"Volume Down",(10,210),cv2.FONT_HERSHEY_SIMPLEX,1,(0,0,255),2)
-
-                # ---- Brightness Control (index+middle+ring fingers up) ----
-                if fingers[0]==1 and fingers[1]==1 and fingers[2]==1 and fingers[3]==0:
-                    now = time.time()
-                    if now - last_click_time > 0.5:  # add cooldown
-                        if index_tip.y < 0.3:
-                            sbc.set_brightness("+5")
-                            cv2.putText(frame,"Brightness Up",(10,250),cv2.FONT_HERSHEY_SIMPLEX,1,(128,255,0),2)
-                            last_click_time = now
-                        elif index_tip.y > 0.55:
-                            sbc.set_brightness("-5")
-                            cv2.putText(frame,"Brightness Down",(10,250),cv2.FONT_HERSHEY_SIMPLEX,1,(128,0,255),2)
-                            last_click_time = now
-
-
-        cv2.imshow("Gesture Control",frame)
+        cv2.imshow("Gesture Control", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 

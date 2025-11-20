@@ -31,3 +31,7 @@ build/
 *.h5
 *.tflite
 *.pt
+
+venv310
+./venv310
+

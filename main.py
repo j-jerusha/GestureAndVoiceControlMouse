@@ -29,13 +29,3 @@ def run_gesture():
         return {"message": "Gesture control started successfully!"}
     except Exception as e:
         return {"message": f"Error in gesture: {str(e)}"}
-
-# Run Voice Control
-@app.post("/run-voice")
-def run_voice():
-    try:
-        script_path = os.path.join(os.path.dirname(__file__), "voicecontrol.py")
-        subprocess.Popen([sys.executable, script_path])
-        return {"message": "Voice control started successfully!"}
-    except Exception as e:
-        return {"message": f"Error in voice: {str(e)}"}
